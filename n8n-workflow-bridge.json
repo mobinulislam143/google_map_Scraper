@@ -1,0 +1,120 @@
+{
+  "name": "Daily Lead Scraper — Bridge Mode",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "id": "node-schedule",
+      "name": "Schedule 8am",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.CRM_API_URL}}/api/admin/reps",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.ADMIN_JWT}}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "node-get-reps",
+      "name": "Get All Reps",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n v4.1 HTTP node auto-splits JSON arrays into individual items.\n// Collect all items, filter ACTIVE reps with city+state+niches, return as one item.\nconst items = $input.all();\n\n// Handle both old (array as 1 item) and new (pre-split) HTTP node behavior\nlet reps = [];\nif (items.length === 1 && Array.isArray(items[0].json)) {\n  reps = items[0].json;\n} else {\n  reps = items.map(i => i.json);\n}\n\nconst active = reps.filter(r =>\n  r.status === 'ACTIVE' &&\n  r.city &&\n  r.state &&\n  Array.isArray(r.niches) &&\n  r.niches.length > 0\n);\n\nif (active.length === 0) {\n  throw new Error('No active reps with city/state/niches found');\n}\n\nreturn [{ json: { reps: active } }];"
+      },
+      "id": "node-filter-reps",
+      "name": "Filter Active Reps",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.SCRAPER_BRIDGE_URL}}/webhook/scrape",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.BRIDGE_SECRET}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ reps: $json.reps }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "node-trigger-bridge",
+      "name": "Trigger Scraper Bridge",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json;\nconsole.log('Bridge job started:', JSON.stringify(r));\nreturn [{\n  json: {\n    job_id:      r.job_id,\n    status:      r.status,\n    reps_queued: r.reps_queued,\n    message:     r.message,\n    triggered_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "node-log",
+      "name": "Log Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "Schedule 8am": {
+      "main": [
+        [{ "node": "Get All Reps", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get All Reps": {
+      "main": [
+        [{ "node": "Filter Active Reps", "type": "main", "index": 0 }]
+      ]
+    },
+    "Filter Active Reps": {
+      "main": [
+        [{ "node": "Trigger Scraper Bridge", "type": "main", "index": 0 }]
+      ]
+    },
+    "Trigger Scraper Bridge": {
+      "main": [
+        [{ "node": "Log Result", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}

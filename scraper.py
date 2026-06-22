@@ -212,18 +212,9 @@ def extract_detail_panel_data(driver, debug=False):
                 # the anchor might be inside
                 a = el.find_element(By.TAG_NAME, 'a')
                 href = a.get_attribute('href') or ''
-            data['website'] = href[:200]
+            data['website'] = href[:200] if href else 'N/A'
         except:
-            try:
-                skip = ['google.com', 'facebook.com', 'instagram.com',
-                        'twitter.com', 'youtube.com', 'yelp.com', 'bbb.org', 'apple.com']
-                for a in driver.find_elements(By.CSS_SELECTOR, "a[href^='http']"):
-                    href = a.get_attribute('href') or ''
-                    if href and not any(s in href.lower() for s in skip):
-                        data['website'] = href[:200]
-                        break
-            except:
-                pass
+            data['website'] = 'N/A'
 
         # --- Rating: aria-label with "stars" ---
         try:
@@ -448,30 +439,11 @@ def main():
     print("GOOGLE MAPS SCRAPER")
     print("=" * 70)
 
-    CITIES = [
-        "Benton",
-  "Bentonville",
-  "Conway",
-  "El Dorado",
-  "Fayetteville",
-  "Fort Smith",
-  "Hot Springs",
-  "Jacksonville",
-  "Jonesboro",
-  "Little Rock",
-  "North Little Rock",
-  "Pine Bluff",
-  "Rogers",
-  "Russellville",
-  "Searcy",
-  "Sherwood",
-  "Springdale",
-  "Texarkana",
-  "Van Buren",
-  "West Memphis"
-    ]
-
-    STATE = "Arkansas"
+    CITIES =[
+  "Atlanta",
+ 
+]
+    STATE = "Georgia"
     sheets_service = get_sheets_service()
     create_sheet_if_not_exists(sheets_service, STATE)
 
