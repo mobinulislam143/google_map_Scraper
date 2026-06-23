@@ -21,14 +21,21 @@ type KeyInfo struct {
 type ValidateKeyFunc func(ctx context.Context, key string) (keyID int, keyName string, err error)
 
 // KeyAuth middleware validates API keys from Authorization or X-API-Key headers.
-// If the SCRAPER_STATIC_KEY environment variable is set, requests that supply
-// that value as their key are accepted without a database lookup — no admin-panel
-// API key required.
+// Set SCRAPER_NO_AUTH=true to disable authentication entirely (open access).
+// Set SCRAPER_STATIC_KEY=<secret> to accept a fixed key without a DB lookup.
 func KeyAuth(validateKey ValidateKeyFunc) func(http.Handler) http.Handler {
+	noAuth := os.Getenv("SCRAPER_NO_AUTH") == "true"
 	staticKey := os.Getenv("SCRAPER_STATIC_KEY")
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// No auth mode — allow all requests freely.
+			if noAuth {
+				ctx := context.WithValue(r.Context(), apiKeyContextKey, &KeyInfo{ID: 0, Name: "open"})
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
 				authHeader = r.Header.Get("X-API-Key")
@@ -41,7 +48,6 @@ func KeyAuth(validateKey ValidateKeyFunc) func(http.Handler) http.Handler {
 
 			key := strings.TrimPrefix(authHeader, "Bearer ")
 
-			// Accept the static env-var key without hitting the database.
 			if staticKey != "" && key == staticKey {
 				ctx := context.WithValue(r.Context(), apiKeyContextKey, &KeyInfo{ID: 0, Name: "static"})
 				next.ServeHTTP(w, r.WithContext(ctx))
