@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -20,13 +21,16 @@ type KeyInfo struct {
 type ValidateKeyFunc func(ctx context.Context, key string) (keyID int, keyName string, err error)
 
 // KeyAuth middleware validates API keys from Authorization or X-API-Key headers.
+// If the SCRAPER_STATIC_KEY environment variable is set, requests that supply
+// that value as their key are accepted without a database lookup — no admin-panel
+// API key required.
 func KeyAuth(validateKey ValidateKeyFunc) func(http.Handler) http.Handler {
+	staticKey := os.Getenv("SCRAPER_STATIC_KEY")
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Check Authorization header
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
-				// Also check X-API-Key header
 				authHeader = r.Header.Get("X-API-Key")
 			}
 
@@ -35,8 +39,14 @@ func KeyAuth(validateKey ValidateKeyFunc) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Extract the key from "Bearer <key>" or just "<key>"
 			key := strings.TrimPrefix(authHeader, "Bearer ")
+
+			// Accept the static env-var key without hitting the database.
+			if staticKey != "" && key == staticKey {
+				ctx := context.WithValue(r.Context(), apiKeyContextKey, &KeyInfo{ID: 0, Name: "static"})
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
 
 			keyID, keyName, err := validateKey(r.Context(), key)
 			if err != nil {
@@ -44,8 +54,7 @@ func KeyAuth(validateKey ValidateKeyFunc) func(http.Handler) http.Handler {
 				return
 			}
 
-			apiKeyInfo := &KeyInfo{ID: keyID, Name: keyName}
-			ctx := context.WithValue(r.Context(), apiKeyContextKey, apiKeyInfo)
+			ctx := context.WithValue(r.Context(), apiKeyContextKey, &KeyInfo{ID: keyID, Name: keyName})
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
